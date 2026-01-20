@@ -66,8 +66,8 @@ AXI4-Lite interface 有 5 個 channels
 ### AXI4-Lite 世界觀  
 |CPU 動作| AXI 動作|  
 |-|-|  
-|Store|送 address -> 送 data -> 等 OK|
-|Load |送 address -> 等 data|
+|Store|送 address → 送 data → 等 OK|
+|Load |送 address → 等 data|
 
 發送端送 `valid` 訊號，接收端送 `ready` 訊號
 每個操作都用 `valid / ready` 確認  
@@ -162,9 +162,43 @@ IDLE
 
 
 
+## 簡單的例子
+#### 目標：
+**自己寫一個 AXI Master，利用 AXI VIP 當 Slave，確認自己寫的 AXI Master 有沒有任何問題**  
+
+1. 到 vivado 開新 project
+2. 右邊面板 IP Catalog → 找到 AXI Verification IP
+3. 設定 AXI VIP
+    - Interface model：Slave
+    - Protocol：AXI4-Lite
+    - Read_Write Mode：READ WRITE
+    - Address Width：32
+    - Data Width：32
+4. 創建 axi master
+    - Sources → Add or Create design sources
+    - Create file → file name: axi_lite_master
+    - 寫 master：
+        - 只做 1 次
+            1. write `0x12345678` → `0x0000_0004`
+            2. read `0x0000_0004`
+    - `AXI_Lite_src/axi_lite_master.v`
+5. 創建 tb
+    - Source → Add or create simulation sources
+    - 把我們寫的 AXI Master 和 AXI VIP 訊號線連接起來
+    - module name 根據自己建立的 .v file 和 VIP name 做更改
+    - `AXI_Lite_src/tb_axi_lite_master.sv`
+
+6. Simulation
+    - 假如 master 沒寫錯，那麼 VIP 就不會在模擬時報錯。我們也能看看波形圖，確認正確寫入與讀取 data
+    - 假如沒辦法進入模擬，可能是 tb 沒被正確設為 SystemVerilog file
+        1. Simulation sources → 右鍵 tb_axi_lite_master
+        2. Set File Type → SystemVerilog 
+
 
 ## reference  
-1. [RealDigital](https://www.realdigital.org/doc/a9fee931f7a172423e1ba73f66ca4081)  
+1. [Introduction to AXI4-Lite](https://www.realdigital.org/doc/a9fee931f7a172423e1ba73f66ca4081)  
 2. [axi_and_ace_protocol_spec 載點](https://documentation-service.arm.com/static/5f915b62f86e16515cdc3b1c)  
-  - p29 signal descriptions  
-  - p126 AXI-Lite
+    - p29 signal descriptions  
+    - p126 AXI-Lite
+
+3. [基于Xilinx VIP的AXI Lite Slave/Master端完整验证实战](https://blog.csdn.net/weixin_42509720/article/details/154766926?spm=1001.2101.3001.6650.3&utm_medium=distribute.pc_relevant.none-task-blog-2%7Edefault%7Ebaidujs_baidulandingword%7ECtr-3-154766926-blog-127293688.235%5Ev43%5Epc_blog_bottom_relevance_base1&depth_1-utm_source=distribute.pc_relevant.none-task-blog-2%7Edefault%7Ebaidujs_baidulandingword%7ECtr-3-154766926-blog-127293688.235%5Ev43%5Epc_blog_bottom_relevance_base1&utm_relevant_index=5)
