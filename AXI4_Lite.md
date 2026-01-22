@@ -186,11 +186,11 @@ IDLE
     - Source → Add or create simulation sources
     - 把我們寫的 AXI Master 和 AXI VIP 訊號線連接起來
     - module name 根據自己建立的 .v file 和 VIP name 做更改
-    - `AXI4_Lite_src/tb_axi_lite_master_v1.sv`
+    - `AXI4_Lite_src/tb_axi_lite_master_v1.sv`  
 
 
-![hierarchy](AXI4_Lite_pic/hierarchy.png)
-
+    ![hierarchy](AXI4_Lite_pic/hierarchy.png)
+---
 6. Simulation
     - 假如 master 沒寫錯，那麼 VIP 就不會在模擬時報錯。我們也能看看波形圖，確認正確寫入與讀取 data
     - 假如沒辦法進入模擬，可能是 tb 沒被正確設為 SystemVerilog file
@@ -204,11 +204,13 @@ IDLE
 
 #### 1. reset 後 時序問題
 
-如果照著 `v1` 的打，應該會發現模擬後看波型，只有 master 送出 address 和 data 的訊號，AXI VIP 完全沒反應。
+如果照著 `v1` 的打，應該會發現模擬後看波型，只有 master 送出 address 和 data 的訊號，AXI VIP 完全沒反應。  
+
+
 ![v1 波型](AXI4_Lite_pic/v1_wave.png)
 
 
-這時我們可以看看 console。|| 題外話，console 好難看 || 
+這時我們可以看看 console （題外話，console 好難看 x
 ```
 Fatal: AXI4_ERRM_AWVALID_RESET
 The earliest point after reset that a master is permitted to begin
@@ -298,7 +300,8 @@ WARNING: port 's_axi_awprot' is not connected
     .s_axi_arprot (ARPROT),
     ...
     ```
-最後我們就可以看到正確的時序啦
+最後我們就可以看到正確的時序啦  
+
 ![最後波型](AXI4_Lite_pic/final_wave.png)
 
 
