@@ -181,18 +181,125 @@ IDLE
         - 只做 1 次
             1. write `0x12345678` → `0x0000_0004`
             2. read `0x0000_0004`
-    - `AXI_Lite_src/axi_lite_master.v`
+    - `AXI4_Lite_src/axi_lite_master_v1.v`
 5. 創建 tb
     - Source → Add or create simulation sources
     - 把我們寫的 AXI Master 和 AXI VIP 訊號線連接起來
     - module name 根據自己建立的 .v file 和 VIP name 做更改
-    - `AXI_Lite_src/tb_axi_lite_master.sv`
+    - `AXI4_Lite_src/tb_axi_lite_master_v1.sv`
+
+
+![hierarchy](AXI4_Lite_pic/hierarchy.png)
 
 6. Simulation
     - 假如 master 沒寫錯，那麼 VIP 就不會在模擬時報錯。我們也能看看波形圖，確認正確寫入與讀取 data
     - 假如沒辦法進入模擬，可能是 tb 沒被正確設為 SystemVerilog file
         1. Simulation sources → 右鍵 tb_axi_lite_master
         2. Set File Type → SystemVerilog 
+        3. 或者當初建立 file 時要選擇 SystemVerilog
+
+
+### 好玩的來了
+> 本來想說自己故意弄幾個錯誤的地方，讓 AXI VIP 幫我糾錯。結果無心插柳剛好寫錯了幾個地方，接著讓我們一起看看
+
+#### 1. reset 後 時序問題
+
+如果照著 `v1` 的打，應該會發現模擬後看波型，只有 master 送出 address 和 data 的訊號，AXI VIP 完全沒反應。
+![v1 波型](AXI4_Lite_pic/v1_wave.png)
+
+
+這時我們可以看看 console。|| 題外話，console 好難看 || 
+```
+Fatal: AXI4_ERRM_AWVALID_RESET
+The earliest point after reset that a master is permitted to begin
+driving AWVALID HIGH is at a rising ACLK edge after ARESETn is HIGH.
+```
+ 
+
+目前 reset 後操作是長這樣  
+|Cycle|	ARESETn	|行為|
+|-|-|-|
+|N	|0	|reset 中|
+|N+1|	1|	進入 else，同一個 edge 就拉高 AWVALID|
+
+##### 但 AXI 規範規定的是：  
+reset deassert 之後，要等至少 **下一個 clock edge** ，才能開始 drive VALID
+
+因此我們在 master 多增加一個 state，變成以下這樣
+```verilog
+...
+    parameter 
+    RESET_WAIT = 0,
+    IDLE = 1,
+    WRITE = 2,
+    WAIT_B = 3,
+    READ = 4,
+    WAIT_R = 5,
+    DONE = 6;
+
+reg [2:0] state;
+
+always @(posedge ACLK) begin
+    if (!ARESETn) begin
+        state <= RESET_WAIT;
+
+        M_AXI_AWVALID <= 0;
+        M_AXI_WVALID  <= 0;
+        M_AXI_BREADY  <= 0;
+        M_AXI_ARVALID <= 0;
+        M_AXI_RREADY  <= 0;
+        M_AXI_AWPROT <= 3'b000;
+        M_AXI_ARPROT <= 3'b000;
+    end else begin
+        case (state)
+
+        RESET_WAIT: begin
+            state <= IDLE;
+        end
+        IDLE: begin
+...
+```
+#### 2. 缺少訊號
+更改 reset 後時序問題，再模擬一次後，會發現 AXI VIP 還是沒有反應  
+看看 console
+```
+Fatal: AXI4_ERRM_AWPROT_X
+When AWVALID is high, a value of X on AWPROT is not permitted.
+WARNING: port 's_axi_awprot' is not connected
+```
+原來是 `AWPROT` 和 `ARPROT` 忘了寫，於是加上以下這些
+- master
+    ```verilog 
+    ...
+    // Write Address Protection
+    output reg [2:0] M_AXI_AWPROT,
+
+    // Read Address Protection
+    output reg [2:0] M_AXI_ARPROT,
+    ...
+    ...
+    if (!ARESETn) begin
+        ...
+        M_AXI_AWPROT <= 3'b000;
+        M_AXI_ARPROT <= 3'b000;
+    end
+    ...
+    ```
+- tb
+    ```SystemVerilog
+    ...
+    logic [2:0] AWPROT;
+    logic [2:0] ARPROT;
+    ...
+    .M_AXI_AWPROT (AWPROT),
+    .M_AXI_ARPROT (ARPROT),
+    ...
+    .s_axi_awprot (AWPROT),
+    .s_axi_arprot (ARPROT),
+    ...
+    ```
+最後我們就可以看到正確的時序啦
+![最後波型](AXI4_Lite_pic/final_wave.png)
 
 
 ## reference  

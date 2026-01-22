@@ -6,7 +6,6 @@ module axi_lite_master(
     output reg  [31:0] M_AXI_AWADDR,
     output reg         M_AXI_AWVALID,
     input  wire        M_AXI_AWREADY,
-    output reg [2:0] M_AXI_AWPROT,
 
     // Write Data
     output reg  [31:0] M_AXI_WDATA,
@@ -23,7 +22,6 @@ module axi_lite_master(
     output reg  [31:0] M_AXI_ARADDR,
     output reg         M_AXI_ARVALID,
     input  wire        M_AXI_ARREADY,
-    output reg [2:0] M_AXI_ARPROT,
 
     // Read Data
     input  wire [31:0] M_AXI_RDATA,
@@ -32,34 +30,21 @@ module axi_lite_master(
     output reg         M_AXI_RREADY
 );
 
-parameter 
-    RESET_WAIT = 0,
-    IDLE = 1,
-    WRITE = 2,
-    WAIT_B = 3,
-    READ = 4,
-    WAIT_R = 5,
-    DONE = 6;
-
+parameter IDLE = 0, WRITE = 1, WAIT_B = 2, READ = 3, WAIT_R = 4, DONE = 5;
 reg [2:0] state;
 
 always @(posedge ACLK) begin
     if (!ARESETn) begin
-        state <= RESET_WAIT;
+        state <= IDLE;
 
         M_AXI_AWVALID <= 0;
         M_AXI_WVALID  <= 0;
         M_AXI_BREADY  <= 0;
         M_AXI_ARVALID <= 0;
         M_AXI_RREADY  <= 0;
-        M_AXI_AWPROT <= 3'b000;
-        M_AXI_ARPROT <= 3'b000;
     end else begin
         case (state)
 
-        RESET_WAIT: begin
-            state <= IDLE;
-        end
         IDLE: begin
             // prepare write
             M_AXI_AWADDR  <= 32'h0000_0004;
@@ -112,9 +97,7 @@ always @(posedge ACLK) begin
             // stop here
             state <= DONE;
         end
-
         endcase
     end
 end
-
 endmodule

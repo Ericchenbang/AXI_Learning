@@ -1,10 +1,9 @@
 `timescale 1ns/1ps
+import axi_vip_pkg::*;
+import axi_vip_0_pkg::*;
 
 module tb_axi_lite_master;
-
-  // --------------------------------------------------
   // clock & reset
-  // --------------------------------------------------
   logic ACLK;
   logic ARESETn;
 
@@ -15,16 +14,15 @@ module tb_axi_lite_master;
 
   initial begin
     ARESETn = 0;
-    #100;
+    repeat (20) @(posedge ACLK);
     ARESETn = 1;
   end
 
-  // --------------------------------------------------
   // AXI signals
-  // --------------------------------------------------
   logic [31:0] AWADDR;
   logic        AWVALID;
   logic        AWREADY;
+  logic [2:0] AWPROT;
 
   logic [31:0] WDATA;
   logic [3:0]  WSTRB;
@@ -38,15 +36,14 @@ module tb_axi_lite_master;
   logic [31:0] ARADDR;
   logic        ARVALID;
   logic        ARREADY;
+  logic [2:0] ARPROT;
 
   logic [31:0] RDATA;
   logic [1:0]  RRESP;
   logic        RVALID;
   logic        RREADY;
 
-  // --------------------------------------------------
   // DUT: your AXI master
-  // --------------------------------------------------
   axi_lite_master dut (
     .ACLK        (ACLK),
     .ARESETn     (ARESETn),
@@ -54,6 +51,7 @@ module tb_axi_lite_master;
     .M_AXI_AWADDR (AWADDR),
     .M_AXI_AWVALID(AWVALID),
     .M_AXI_AWREADY(AWREADY),
+    .M_AXI_AWPROT (AWPROT),
 
     .M_AXI_WDATA  (WDATA),
     .M_AXI_WSTRB  (WSTRB),
@@ -67,6 +65,7 @@ module tb_axi_lite_master;
     .M_AXI_ARADDR (ARADDR),
     .M_AXI_ARVALID(ARVALID),
     .M_AXI_ARREADY(ARREADY),
+    .M_AXI_ARPROT (ARPROT),
 
     .M_AXI_RDATA  (RDATA),
     .M_AXI_RRESP  (RRESP),
@@ -74,9 +73,7 @@ module tb_axi_lite_master;
     .M_AXI_RREADY (RREADY)
   );
 
-  // --------------------------------------------------
   // AXI VIP (Slave)
-  // --------------------------------------------------
   axi_vip_0 u_axi_vip (
     .aclk    (ACLK),
     .aresetn (ARESETn),
@@ -84,6 +81,7 @@ module tb_axi_lite_master;
     .s_axi_awaddr  (AWADDR),
     .s_axi_awvalid (AWVALID),
     .s_axi_awready (AWREADY),
+    .s_axi_awprot (AWPROT),
 
     .s_axi_wdata   (WDATA),
     .s_axi_wstrb   (WSTRB),
@@ -97,11 +95,39 @@ module tb_axi_lite_master;
     .s_axi_araddr  (ARADDR),
     .s_axi_arvalid (ARVALID),
     .s_axi_arready (ARREADY),
+    .s_axi_arprot (ARPROT),
 
     .s_axi_rdata   (RDATA),
     .s_axi_rresp   (RRESP),
     .s_axi_rvalid  (RVALID),
     .s_axi_rready  (RREADY)
   );
+
+  // AXI VIP control
+  axi_vip_0_slv_mem_t slv_agent;
+
+  initial begin
+    
+    wait (ARESETn === 1'b1);
+    repeat (5) @(posedge ACLK);
+
+    slv_agent = new("slv_agent", u_axi_vip.inst.IF);
+
+    //slv_agent.mem_model.set_enable(1);
+
+    slv_agent.start_slave();
+
+    $display("[TB] AXI VIP slave started");
+  end
+
+  always @(posedge ACLK) begin
+    if (AWVALID)
+      $display("[%0t] AWVALID addr=%h ready=%b", $time, AWADDR, AWREADY);
+    if (WVALID)
+      $display("[%0t] WVALID data=%h ready=%b", $time, WDATA, WREADY);
+    if (BVALID)
+      $display("[%0t] BVALID resp=%b", $time, BRESP);
+  end
+
 
 endmodule
