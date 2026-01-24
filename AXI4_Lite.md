@@ -300,6 +300,13 @@ WARNING: port 's_axi_awprot' is not connected
     .s_axi_arprot (ARPROT),
     ...
     ```
+簡單說明一下 `PROT`
+- 用途： 告訴系統這筆資料的「身分地位」。
+- bit [0]：Privileged ( `== 1 ? 特權模式 : 用戶模式` )
+- bit [1]：Secure ( `== 1 ? 非安全世界 : 安全世界` - TrustZone 概念)
+- bit [2]：Instruction ( `== 1 ? 程式碼 : 數據` )
+
+
 最後我們就可以看到正確的時序啦  
 
 ![最後波型](AXI4_Lite_pic/final_wave.png)

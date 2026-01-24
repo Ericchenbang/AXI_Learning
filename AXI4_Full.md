@@ -207,8 +207,158 @@ RID
 ```
 ---
 
+## 開始寫 master 囉
+### 現在的目標
+不是真正支援 AXI-Full 的所有功能，而是：
+- **介面 = AXI-Full**  
+- **行為 = AXI-Lite (burst = 1, ID fixed, no outstanding)**  
 
 
+所以我們會：
+- 在各個 channel 加入 AXI-Full 訊號 (基於 `AXI_Lite_src/axi_lite_master.v`)
+- 新增的訊號值固定
+
+#### Write Address Channel
+新增  
+```verilog
+output reg [3:0] M_AXI_AWID,
+output reg [7:0] M_AXI_AWLEN,
+output reg [2:0] M_AXI_AWSIZE,
+output reg [1:0] M_AXI_AWBURST,
+```
+固定值  
+| 訊號      | 固定值    | 意義             |
+| ------- | ------ | -------------- |
+| AWID    | 0      | 單一 transaction |
+| AWLEN   | 0      | burst = 1      |
+| AWSIZE  | 3'b010 | 4 bytes        |
+| AWBURST | 2'b01  | INCR           |
+
+#### Write Data Channel
+新增
+```verilog
+output reg M_AXI_WLAST,
+```
+固定值
+```verilog
+M_AXI_WLAST = 1;     // 只有 1 beat
+```
+
+#### Write Response Channel
+新增
+```verilog
+input wire [3:0] M_AXI_BID
+```
+固定值
+```verilog
+M_AXI_BID = 0;
+```
+
+#### Read Address Channel
+新增
+```verilog
+output reg [3:0] M_AXI_ARID,
+output reg [7:0] M_AXI_ARLEN,
+output reg [2:0] M_AXI_ARSIZE,
+output reg [1:0] M_AXI_ARBURST,
+```
+固定值 (同 AW)  
+| 訊號      | 固定值    | 意義             |
+| ------- | ------ | -------------- |
+| ARID    | 0      | 單一 transaction |
+| ARLEN   | 0      | burst = 1      |
+| ARSIZE  | 3'b010 | 4 bytes        |
+| ARBURST | 2'b01  | INCR           |
+
+#### Read Data Channel
+新增　
+```verilog
+input wire [3:0] M_AXI_RID,
+input wire        M_AXI_RLAST,
+```
+固定值
+```verilog
+M_AXI_RID = 0;
+M_AXI_RLAST = 1;
+```
+
+
+#### Sideband Signals
+不過因為 AXI4-Full 為了支援各種複雜情況 (ex~ 虛擬化、多核心快取一致性或 QoS)，定義了很多 **旁路訊號 (Sideband Signals)**  
+VIP 會嚴格檢查協議完整性，只要 `VALID` 拉起來，這些訊號絕對不能是 `X (未定義)`  
+
+
+```verilog
+output reg  [3:0]  M_AXI_AWCACHE,
+output reg         M_AXI_AWLOCK,
+output reg  [3:0]  M_AXI_AWQOS,
+output reg  [3:0]  M_AXI_AWREGION,
+```
+
+```verilog
+output reg  [3:0]  M_AXI_ARCACHE,
+output reg         M_AXI_ARLOCK,
+output reg  [3:0]  M_AXI_ARQOS,
+output reg  [3:0]  M_AXI_ARREGION,
+```
+簡單說明一下
+- CACHE
+    - Bit 0: Bufferable (可緩衝) 
+        - 0 (Non-bufferable): 
+            - Master 說：「我要確保這個數據真的寫進了最終的目的地 (Device)，對方親自收到後，才能回傳 Response 給我」
+            - 用途：寫入硬體暫存器 (Registers) 時一定要用這個。不然你以為馬達停了，結果指令還卡在半路
+
+        - 1 (Bufferable): 
+            - Master 說：「我不介意中間的路由器 (Interconnect) 或寫入緩衝區 (Write Buffer) 先幫我收下，並馬上回傳 Response 給我。至於它什麼時候真正寫進去我不關心」
+            - 寫入 DDR 記憶體時為了效能，通常允許中間站先收下。
+    - Bit 1: Modifiable (可修改)
+        - 0 (Non-modifiable)
+            - 這筆交易的地址、突發長度 (Burst Length)、大小都不能被改變。Master 送出什麼，Slave 就必須收到什麼
+            - 用途： 絕對是暫存器 (Register) 操作。如果你寫 4 bytes 到控制暫存器，結果路由器幫你拆成 4 個 1 byte，硬體可能會壞掉
+        - 1 (Modifiable):
+            - 路由器 (Interconnect) 有權利把這筆交易「拆成小筆」或「合併成大筆」
+            - 用途： 記憶體存取 (DDR)。
+            - 例如：發出一個 64-byte 的寫入，但中間經過一個只有 32-bit 寬的匯流排，路由器會自動幫你拆成 16 筆交易
+    - Bit 2 & 3: Allocate (快取分配) ——「要不要放進 L2 Cache？」  
+    這兩個 bit 是給系統中的 System Cache (如 L2 Cache) 看的建議。
+        - Bit 2 (Read Allocate): 讀取如果沒命中 (Miss)，要不要把資料搬進 Cache？
+        - Bit 3 (Write Allocate): 寫入如果沒命中，要不要把資料搬進 Cache？
+        - 對於簡單的 Master IP，這兩個 bit 影響不大，通常是 CPU 比較在意。
+   - 懶人包
+       - 情境 A：控制硬體暫存器 (Device / Register Access)
+            - 設定值：`4'b0000`
+            - 含義： Non-bufferable, Non-modifiable
+            - 翻譯： 這是重要指令！不准緩衝、不准改封包、不准進 Cache，給我直接送到目的地！
+
+        - 情境 B：讀寫 DDR 記憶體 (Normal Memory Access)
+            - 設定值：`4'b0011` (最常用) 或 `4'b1111`
+            - 含義： Bufferable, Modifiable。
+            - 翻譯：這是大量數據。為了效率，中間站可以幫忙代收，也可以幫我拆包重組，隨便你怎麼優化都行
+    - 寫入 Slave 的暫存器： 用 `0000`。
+    - 傳輸大量資料到 RAM： 用 `0011`。
+   
+   
+   
+    
+- LOCK
+    - 用途：用於 atomic operation，例如「讀取-修改-寫入」的過程中，不讓其他 Master 插隊。
+    - AXI4 變化： AXI4 把它簡化成只有 1 bit (0 = Normal, 1 = Exclusive)。以前 AXI3 有 2 bits (還包含 Locked transfer)，但容易造成系統 deadlock，所以被廢除了。
+- QOS
+    - 用途： 就像機場的 VIP 通道。數值越高，Interconnect (路由器) 會優先處理這筆交易。例如 CPU 的請求通常比 DMA 的請求優先級高。
+- REGION
+    - 用途：當一個 Slave 介面後面接了多個實體記憶體介面時，用來指名要去哪一個區域。通常設 0 即可。
+
+以上改動後程式碼在 `AXI_Full_src/master_v1.v` /  `AXI_Full_src/tb.v`  
+
+### 建立專案，用 VIP 驗證一下
+和 AXI-Lite 流程大致相同
+1. 新建 project
+2. IP Catalog 找到 VIP 加進去 
+  ![AXI VIP 設定](AXI4_FULL_pic/AXI_VIP_CONF)
+3. 加入 master, tb
+4. run simulation
+5. 看看波型
+  ![sim waveform](AXI4_Full_pic/v1_waveform.png)
 
 
 
