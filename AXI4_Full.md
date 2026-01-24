@@ -132,4 +132,91 @@ Master 只需要在 `AW` 通道講一次地址，Slave 會自動計算後續 dat
 | AR      | 同 AW              | 同 AW              |
 | R       | 單一 data           | 多 beat + RLAST   |
 
+### Write Address Channel (AW)
+AW 目標是 **從這個 address 開始，用某種方式，傳一串 data**    
+
+已經會的 AXI-Lite
+```verilog
+AWADDR / AWPORT
+AWVALID / AWREADY
+```  
+
+AXI-Full 多了
+```verilog
+AWID     // 交易編號
+AWLEN    // burst 長度 - 1
+AWSIZE   // 每個 beat 幾 bytes
+AWBURST  // FIXED / INCR / WRAP
+```
+##### 注意
+- `AWLEN = 0` 代表 1 個 data，`AWLEN = 1` 代表 2 個 data ，以此類推  
+- `AWSIZE = log2 (bytes per beat)`
+
+### Write data channel (W)
+**每一次 `WVALID` 和 `WREADY` 等於 1 個 beat**    
+  
+  
+已經會的 AXI-Lite
+```verilog
+WDATA / WSTRB
+WVALID / WREADY
+```  
+
+AXI-Full 多了
+```verilog
+WLAST    // 代表這個 burst 的最後一個 beat
+```
+
+
+### Write Response Channel (B)
+B 目標是告知 **這整個 burst 寫完了**  
+
+已經會的 AXI-Lite
+```verilog
+BRESP
+BVALID + BREADY
+```  
+
+AXI-Full 多了
+```verilog
+BID
+```
+
+### Read Address Channel (AR)
+幾乎和 AW 新增的一樣
+```verilog
+ARID
+ARADDR
+ARLEN
+ARSIZE
+ARBURST
+ARVALID / ARREADY
+```
+
+### Read data channel (R)
+已經會的 AXI-Lite
+```verilog
+RDATA
+RVALID / RREADY
+```  
+
+AXI-Full 多了
+```verilog
+RLAST
+RID
+```
+---
+
+
+
+
+
+
+
+
+
+
+
+
+
 
