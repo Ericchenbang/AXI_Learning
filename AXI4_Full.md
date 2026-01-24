@@ -353,11 +353,12 @@ output reg  [3:0]  M_AXI_ARREGION,
 ### 建立專案，用 VIP 驗證一下
 和 AXI-Lite 流程大致相同
 1. 新建 project
-2. IP Catalog 找到 VIP 加進去 
-  ![AXI VIP 設定](AXI4_FULL_pic/AXI_VIP_CONF.png)
-3. 加入 master, tb
-4. run simulation
-5. 看看波型
+2. IP Catalog 找到 VIP 加進去   
+  ![VIP設定](AXI4_Full_pic/AXI_VIP_CONF.png)
+
+4. 加入 master, tb
+5. run simulation
+6. 看看波型
   ![sim waveform](AXI4_Full_pic/v1_waveform.png)
 
 
