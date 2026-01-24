@@ -22,7 +22,7 @@ module tb_axi_lite_master;
   logic [31:0] AWADDR;
   logic        AWVALID;
   logic        AWREADY;
-  logic [2:0] AWPROT;
+  logic [2:0]  AWPROT;
 
   logic [31:0] WDATA;
   logic [3:0]  WSTRB;
@@ -36,7 +36,7 @@ module tb_axi_lite_master;
   logic [31:0] ARADDR;
   logic        ARVALID;
   logic        ARREADY;
-  logic [2:0] ARPROT;
+  logic [2:0]  ARPROT;
 
   logic [31:0] RDATA;
   logic [1:0]  RRESP;
@@ -81,7 +81,7 @@ module tb_axi_lite_master;
     .s_axi_awaddr  (AWADDR),
     .s_axi_awvalid (AWVALID),
     .s_axi_awready (AWREADY),
-    .s_axi_awprot (AWPROT),
+    .s_axi_awprot  (AWPROT),
 
     .s_axi_wdata   (WDATA),
     .s_axi_wstrb   (WSTRB),
@@ -95,7 +95,7 @@ module tb_axi_lite_master;
     .s_axi_araddr  (ARADDR),
     .s_axi_arvalid (ARVALID),
     .s_axi_arready (ARREADY),
-    .s_axi_arprot (ARPROT),
+    .s_axi_arprot  (ARPROT),
 
     .s_axi_rdata   (RDATA),
     .s_axi_rresp   (RRESP),
