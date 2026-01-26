@@ -348,7 +348,7 @@ output reg  [3:0]  M_AXI_ARREGION,
 - REGION
     - 用途：當一個 Slave 介面後面接了多個實體記憶體介面時，用來指名要去哪一個區域。通常設 0 即可。
 
-以上改動後程式碼在 `AXI_Full_src/master_v1.v` /  `AXI_Full_src/tb.v`  
+>以上改動後程式碼在 `AXI_Full_src/master_v1.v` /  `AXI_Full_src/tb.v`  
 
 ### 建立專案，用 VIP 驗證一下
 和 AXI-Lite 流程大致相同
@@ -356,12 +356,77 @@ output reg  [3:0]  M_AXI_ARREGION,
 2. IP Catalog 找到 VIP 加進去   
   ![VIP設定](AXI4_Full_pic/AXI_VIP_CONF.png)
 
-4. 加入 master, tb
+4. 加入 master_v1, tb_v1
 5. run simulation
 6. 看看波型
   ![sim waveform](AXI4_Full_pic/v1_waveform.png)
 
+---
+### 現在的目標：支援 burst, 但不支援 outstanding
+一個 AW → 多個 W → 一個 B
+- AXI4 INCR burst
 
+#### 先改 Write
+假設要寫 4 beats (32-bit)
+
+1. 決定 burst 參數
+    ```verilog
+    localparam BURST_LEN = 4;
+    ...
+    AWLEN = BURST_LEN - 1;  // beat - 1
+    AWSIZE = 3'b010;        // 4 bytes (log2(4))
+    AWBURST = 2'b01;        // INCR
+    ```
+2. 加入 write burst 計數器
+    ```verilog
+    reg [7:0] w_beat_cnt;
+    ```
+    記得初始化
+    ```verilog
+    w_beat_cnt <= 0;
+    ```
+
+3. 改寫 Write state
+    - AW handshake 一次
+    - W 會 handshake 多次
+    - 最後一拍 `WLAST = 1`
+    ```verilog
+    WRITE: begin
+        // Address channel
+        if (M_AXI_AWREADY && M_AXI_AWVALID) begin
+            M_AXI_AWVALID <= 0;
+        end
+
+        // Write data channel
+        if (M_AXI_WREADY && M_AXI_WVALID) begin
+            w_beat_cnt <= w_beat_cnt + 1;
+
+            M_AXI_WDATA <= M_AXI_WDATA + 32'h1;
+
+            if (w_beat_cnt == BURST_LEN - 2) begin
+                // next cycle is last burst cycle
+                M_AXI_WLAST <= 1;
+            end
+            else if (w_beat_cnt == BURST_LEN - 1) begin
+                // finish burst
+                M_AXI_WVALID <= 0;
+                M_AXI_WLAST  <= 0;
+            end
+        end
+
+        if (!M_AXI_AWVALID && !M_AXI_WVALID) begin
+            M_AXI_BREADY <= 1;
+            state <= WAIT_B;
+        end
+    end
+    ```
+> 以上 code 會在 `AXI4_Full_src/master_v2.v`
+#### 用 VIP 驗證一下
+1. 新建 / 打開 project
+2. 加入 master_v2
+3. run simulation
+4. 看看波型
+  ![sim waveform](AXI4_Full_pic/write_burst_waveform.png)
 
 
 
