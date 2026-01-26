@@ -72,6 +72,7 @@ reg [2:0] state;
 
 localparam BURST_LEN = 4;       // beats
 reg [7:0] w_beat_cnt;
+reg [7:0] r_beat_cnt;
 
 always @(posedge ACLK) begin
     if (!ARESETn) begin
@@ -159,8 +160,9 @@ always @(posedge ACLK) begin
                 end
 
                 if (!M_AXI_AWVALID && !M_AXI_WVALID) begin
-                    M_AXI_BREADY <= 1;
                     state <= WAIT_B;
+                    
+                    M_AXI_BREADY <= 1;
                 end
             end
 
@@ -172,21 +174,35 @@ always @(posedge ACLK) begin
             end
 
             READ: begin
+                // burst read: 4 beats
                 M_AXI_ARADDR  <= 32'h0000_0004;
+                M_AXI_ARLEN <= BURST_LEN - 1;
+                M_AXI_ARSIZE <= 3'b010;
+                M_AXI_ARBURST <= 2'b01;
+
                 M_AXI_ARVALID <= 1;
 
                 if (M_AXI_ARVALID && M_AXI_ARREADY) begin
+                    state <= WAIT_R;
+                    
                     M_AXI_ARVALID <= 0;
                     M_AXI_RREADY  <= 1;
-                    state <= WAIT_R;
+                    r_beat_cnt <= 0;
                 end
             end
 
             WAIT_R: begin
-                if (M_AXI_RVALID && M_AXI_RLAST) begin
-                    // we can check M_AXI_RDATA here
-                    M_AXI_RREADY <= 0;
-                    state <= DONE;
+                if (M_AXI_RVALID && M_AXI_RREADY) begin
+                    r_beat_cnt <= r_beat_cnt + 1;
+
+                    // check or store M_AXI_RDATA
+                    $display("Read beat %0d = %h", r_beat_cnt, M_AXI_RDATA);
+
+                    if (M_AXI_RLAST) begin
+                        // finish burst 
+                        M_AXI_RREADY <= 0;
+                        state <= DONE;
+                    end
                 end
             end
 

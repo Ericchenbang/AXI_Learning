@@ -92,7 +92,7 @@ always @(posedge ACLK) begin
                 M_AXI_ARADDR  <= 32'h0000_0004;
                 M_AXI_ARVALID <= 1;
 
-                if (M_AXI_ARREADY) begin
+                if (M_AXI_ARVALID && M_AXI_ARREADY) begin
                     M_AXI_ARVALID <= 0;
                     M_AXI_RREADY  <= 1;
                     state <= WAIT_R;

@@ -356,7 +356,7 @@ output reg  [3:0]  M_AXI_ARREGION,
 2. IP Catalog 找到 VIP 加進去   
   ![VIP設定](AXI4_Full_pic/AXI_VIP_CONF.png)
 
-4. 加入 master_v1, tb_v1
+4. 加入 `master_v1.v`, `tb_v1.sv`
 5. run simulation
 6. 看看波型
   ![sim waveform](AXI4_Full_pic/v1_waveform.png)
@@ -422,12 +422,51 @@ output reg  [3:0]  M_AXI_ARREGION,
     ```
 > 以上 code 會在 `AXI4_Full_src/master_v2.v`
 #### 用 VIP 驗證一下
-1. 新建 / 打開 project
-2. 加入 master_v2
+1. 打開上個 project
+2. 把 `master_v1.v` 替換成 `master_v2.v`
 3. run simulation
-4. 看看波型
+4. 看看波型，`WDATA` 是否正確寫入
   ![sim waveform](AXI4_Full_pic/write_burst_waveform.png)
 
+#### 再改 Read
+假設一樣讀 4 beats
+1. burst 參數
+    ```verilog
+    M_AXI_ARLEN <= BURST_LEN - 1;
+    M_AXI_ARSIZE <= 3'b010;
+    M_AXI_ARBURST <= 2'b01;
+    ```
+2. 加入 read burst counter
+    ```verilog
+    reg [7:0] r_beat_cnt;
+    ```
+3. 改寫 WAIT_R State
+    - Slave 會連續送 RVALID
+    - 最後一拍一定 `RLAST = 1`
+    - Master 只要在 burst 期間一直把 `RREADY = 1` 維持住  
+    ```verilog
+    WAIT_R: begin
+        if (M_AXI_RVALID && M_AXI_RREADY) begin
+            r_beat_cnt <= r_beat_cnt + 1;
 
+            // check or store M_AXI_RDATA
+            // $display("Read beat %0d = %h", r_beat_cnt, M_AXI_RDATA);
+
+            if (M_AXI_RLAST) begin
+                // finish burst 
+                M_AXI_RREADY <= 0;
+                state <= DONE;
+            end
+        end
+    end
+    ```
+    - 注意我們不用 counter 判斷結束與否，而是用 `RLAST == 1`
+> 以上 code 會在 `AXI4_Full_src/master_v3.v`
+#### 用 VIP 驗證一下
+1. 打開上個 project
+2. 把 `master_v2.v` 替換成 `master_v3.v`
+3. run simulation
+4. 看看波型，`RDATA` 是否正確讀出
+  ![sim waveform](AXI4_Full_pic/read_burst_waveform.png)
 
 
