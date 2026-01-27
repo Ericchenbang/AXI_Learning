@@ -207,3 +207,150 @@ assign can_issue =
 4. run simulation
 5. 看看波型
     ![write_outstanding_v1](AXI4_Outstanding_pic/write_outstanding_v1.png)
+---
+#### 把 AW, W 分離
+`can_issue` 判斷條件有一個 `!sending_w`
+- 代表目前 AW 等這次一整個 burst 送完後，才會發出下次 AW 
+- 但只要 outstanding 還沒滿，AW 應該要可以一直送
+
+AXI4 規定
+- `AW` 可以 outstanding 多筆
+- `W` 可以跟 `AW` 不同步
+- 但 `WDATA` 順序必須符合 `AW` 順序
+    ```text
+    AW0 → AW1 → AW2
+    ------------------
+    W0 beat0, beat1, beat2, beat3
+    W1 beat0, beat1, beat2, beat3
+    W2 beat0, beat1, beat2, beat3
+    ```
+
+
+#### 新增 reg
+判斷 `W` 是否正在送某個 burst
+```verilog!
+reg w_active;
+```
+將原本的 `bursts_left` 刪掉，換成遞增紀錄
+```verilog!
+reg [7:0] aw_issue_idx;
+```
+因為 `AW` 和 `W` 分離了，所以需要額外的 reg 紀錄現在傳送到哪個 burst (之前是用通用的 `bursts_left` 紀錄)
+```verilog!
+reg [7:0] w_burst_idx;
+```
+紀錄已經送 `AW`，但 `W` 還沒送的 burst 數量
+```verilog!
+reg [2:0] aw_pending;
+```
+更新規則
+- `AW` handshake：`aw_pending++`
+- `W` burst 完成：`aw_pending--`
+
+
+Reset 時初始化
+```verilog!
+// outstanding
+w_active <= 0;
+aw_issue_idx <= 0;
+w_burst_idx <= 0;
+aw_pending <= 0;
+```
+
+#### 更改 `can_issue`
+```verilog!
+can_issue_aw = (aw_issue_idx < TOTAL_BURSTS) &&
+               (wr_outstanding < MAX_WR_OUTSTANDING) &&
+               !M_AXI_AWVALID;
+```
+不再有 `sending_w`
+
+#### 更改 AW, W 
+```verilog!
+RUN: begin
+    // Issue new AW
+    if (can_issue) begin
+        M_AXI_AWADDR  <= 32'h0000_0000 + (aw_issue_idx * 16);
+        M_AXI_AWLEN   <= BURST_LEN - 1;
+        M_AXI_AWSIZE  <= 3'b010;
+        M_AXI_AWBURST <= 2'b01;
+        M_AXI_AWVALID <= 1;
+
+        aw_issue_idx <= aw_issue_idx + 1;
+    end 
+
+    // AW handshake
+    if (M_AXI_AWVALID && M_AXI_AWREADY) begin
+        M_AXI_AWVALID <= 0;
+        aw_pending <= aw_pending + 1;
+    end
+```
+- `AW` 不用管 `W` 的 data, valid 之類的  
+
+
+```verilog!
+// W channel
+    // start to send next burst
+    if (!w_active && aw_pending > 0) begin
+        M_AXI_WDATA <= 32'h1000_0000 + (w_burst_idx * 16);
+        M_AXI_WSTRB <= 4'b1111;
+        M_AXI_WVALID<= 1;
+        M_AXI_WLAST <= 0;
+
+        w_active <= 1;
+        w_beat_cnt <= 0;
+    end
+
+    if (w_active && M_AXI_WVALID && M_AXI_WREADY) begin
+        w_beat_cnt <= w_beat_cnt + 1;
+        M_AXI_WDATA <= M_AXI_WDATA + 1;
+
+        if (w_beat_cnt == BURST_LEN - 2) begin
+            M_AXI_WLAST <= 1;
+        end
+
+        if (w_beat_cnt == BURST_LEN - 1) begin
+            M_AXI_WVALID <= 0;
+            M_AXI_WLAST <= 0;
+
+            w_active <= 0;
+            w_burst_idx <= w_burst_idx + 1;
+            aw_pending <= aw_pending - 1;
+        end
+    end
+```
+分成兩種情況
+- 還沒開始傳 data 並且 `AW` 已經傳 addr 了
+    - 開啟這一次的 burst 傳送
+- 正在傳 data 時收到 `READY`
+    - 繼續傳送下一 beat 的 data
+    - 如果傳完了，就更新 `w_active` `w_burst_idx` `aw_pending`
+
+```verilog!
+if ((aw_issue_idx == TOTAL_BURSTS) && 
+    (wr_outstanding == 0) && 
+    !w_active && !M_AXI_AWVALID) begin
+    state <= DONE;
+end 
+```
+- 更改原本的判斷條件 `bursts_left == 0` 
+
+> 以上 code 位於 `AXI4_Outstanding_src/master_v5.v`
+
+
+#### 小總結
+目前有 3 條分離的時間軸
+```text!
+AW issue order:  aw_issue_idx → 0,1,2,3,4...
+W send order:   w_burst_idx  → 0,1,2,3,4...
+B response:     wr_outstanding control
+```
+
+#### VIP 驗證
+1. 打開 project
+2. 把 `master_v4.v` 換成 `master_v5.v`
+3. run simulation
+    - 模擬時間可能會不夠(1000 ns)，可以直接按上方橫列出現的 run all 符號，或者按 run for，設定個 500 ns
+4. 看看波型，`AW` 有沒有真的和 `W` 分離
+    ![V2](AXI4_Outstanding_pic/write_outstanding_v2.png)
+

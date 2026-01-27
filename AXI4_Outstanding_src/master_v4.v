@@ -60,7 +60,7 @@ module master(
 );
 
 parameter RESET_WAIT = 0, RUN = 1, DONE = 2;
-reg state;
+reg [1:0] state;
 
 // burst
 localparam BURST_LEN = 4;       // beats
