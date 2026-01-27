@@ -348,7 +348,7 @@ output reg  [3:0]  M_AXI_ARREGION,
 - REGION
     - 用途：當一個 Slave 介面後面接了多個實體記憶體介面時，用來指名要去哪一個區域。通常設 0 即可。
 
->以上改動後程式碼在 `AXI_Full_src/master_v1.v` /  `AXI_Full_src/tb.v`  
+>以上改動後程式碼在 `AXI_Full_src/master_v1.v` /  `AXI_Full_src/tb.sv`  
 
 ### 建立專案，用 VIP 驗證一下
 和 AXI-Lite 流程大致相同
@@ -356,7 +356,7 @@ output reg  [3:0]  M_AXI_ARREGION,
 2. IP Catalog 找到 VIP 加進去   
   ![VIP設定](AXI4_Full_pic/AXI_VIP_CONF.png)
 
-4. 加入 `master_v1.v`, `tb_v1.sv`
+4. 加入 `master_v1.v`, `tb.sv`
 5. run simulation
 6. 看看波型
   ![sim waveform](AXI4_Full_pic/v1_waveform.png)
