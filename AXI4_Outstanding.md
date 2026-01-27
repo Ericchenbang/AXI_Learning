@@ -350,7 +350,124 @@ B response:     wr_outstanding control
 1. 打開 project
 2. 把 `master_v4.v` 換成 `master_v5.v`
 3. run simulation
-    - 模擬時間可能會不夠(1000 ns)，可以直接按上方橫列出現的 run all 符號，或者按 run for，設定個 500 ns
+    - 模擬時間可能會不夠 (1000 ns)，可以直接按上方橫列出現的 run all 符號，或者按 run for，設定個 500 ns
 4. 看看波型，`AW` 有沒有真的和 `W` 分離
     ![V2](AXI4_Outstanding_pic/write_outstanding_v2.png)
 
+### 再做 read outstanding
+其實比 write outstanding 好做許多
+| Write                | Read          |
+| -------------------- | ------------- |
+| AW / W / B 三通道       | AR / R 兩通道    |
+| W 要 pipeline + burst | R 本來就 burst   |
+| W 不能亂序               | R 也不能亂序（同 ID） |  
+
+只要再達成 3 件事：
+1. AR fully outstanding
+2. R pipeline
+3. 用 counter 維持 burst 
+
+**以下基本上對照 write outstanding，依樣畫葫蘆得斯**
+#### 新增 register
+```verilog
+// read control
+reg [7:0] ar_issue_idx;
+reg [7:0] r_burst_idx;
+reg       r_active;
+
+// read outstanding
+reg [2:0] rd_outstanding;
+```
+- Reset 時全清為 0  
+- 不用 `ar_pending`，因為可以用 `rd_outstanding` 判斷
+
+```verilog
+wire ar_can_issue_ar;
+assign ar_can_issue_ar =
+    (ar_issue_idx < TOTAL_BURSTS) &&
+    (rd_outstanding < MAX_RD_OUTSTANDING) &&
+    !M_AXI_ARVALID;
+```
+#### AR fully outstanding
+```verilog
+// start AR
+    if (ar_can_issue) begin
+        M_AXI_ARADDR <= 32'h0000_0000 + ar_issue_idx * 16;
+        M_AXI_ARLEN <= BURST_LEN - 1;
+        M_AXI_ARSIZE <= 3'b010;
+        M_AXI_ARBURST <= 2'b01;
+        M_AXI_ARVALID <= 1;
+
+        ar_issue_idx <= ar_issue_idx + 1;
+    end
+
+    // AR handshake
+    if (M_AXI_ARVALID && M_AXI_ARREADY) begin
+        M_AXI_ARVALID <= 0;
+    end
+```
+
+#### R pipeline
+```verilog
+// start R
+    if (!r_active && rd_outstanding > 0) begin
+        M_AXI_RREADY <= 1;
+
+        r_active <= 1;
+        r_beat_cnt <= 0;
+    end
+
+    // receive data
+    if (r_active && M_AXI_RVALID && M_AXI_RREADY) begin
+        // expected = 32'h1000_0000 + r_burst_idx * 16 + r_beat_cnt;
+        // check or store M_AXI_RDATA
+        $display("Read burst %0d beat %0d = %h", 
+                r_burst_idx, r_beat_cnt, M_AXI_RDATA);
+
+        if (M_AXI_RLAST) begin
+            M_AXI_RREADY <= 0;
+
+            r_active <= 0;
+            r_burst_idx <= r_burst_idx + 1;
+        end
+        else begin
+            r_beat_cnt <= r_beat_cnt + 1;
+        end
+    end
+```
+
+#### Read outstanding counter
+```verilog
+always @(posedge ACLK) begin
+    if (!ARESETn) begin
+        rd_outstanding <= 0;
+    end else begin
+        case ({M_AXI_ARVALID && M_AXI_ARREADY,
+               M_AXI_RVALID  && M_AXI_RREADY && M_AXI_RLAST})
+            2'b10: rd_outstanding <= rd_outstanding + 1;
+            2'b01: rd_outstanding <= rd_outstanding - 1;
+            2'b11: rd_outstanding <= rd_outstanding;
+            default: rd_outstanding <= rd_outstanding;
+        endcase
+    end
+end
+```
+
+#### 跳轉到 Done 的條件
+```verilog
+if ((ar_issue_idx == TOTAL_BURSTS) && 
+    (rd_outstanding == 0) && 
+    !r_active && !M_AXI_ARVALID) begin
+    state <= DONE;
+end 
+```
+
+> 以上 code 在 `AXI4_Outstanding_src/master_v6.v`
+
+#### VIP 驗證
+1. 打開 project
+2. 把 `master_v5.v` 換成 `master_v6.v`
+3. run simulation
+    - 模擬時間肯定不夠 (1000 ns)，可以直接按上方橫列出現的 run all 符號
+4. 看看波型，有沒有正確讀出先前寫入的值
+    ![read_outstanding](AXI4_Outstanding_pic/read_outstanding.png)
