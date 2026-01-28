@@ -57,3 +57,154 @@ ex~ 假設 Burst Length = 2 beats
     - `RID` = 0, Data = A1 (A 結束)
 
 
+### 啟動 !
+目標：引入 ID，但還是假設 in-order
+- 每個 `AW` / `AR` 都有 ID
+- Slave 回 `B` / `R` 時，我們去看 `BID` / `RID`
+- 不處理亂序
+- 不同 ID 交錯回來時不保證正確
+
+因為 write 似乎比較難，先搞搞 read
+
+#### 回顧 `master_v6`
+其實現在每個 burst 都有自己的名字，叫做 `*_burst_idx`，  
+但它應該叫 `ID`
+
+#### 最小 per-ID state
+對讀取來說，額外要有兩個 array
+| state| 意義|
+| - | -- |
+| beat_cnt [ID] | 這個 burst 回到第幾拍 |
+| active [ID]   | 這個 ID 是否正在接收資料 |
+
+
+不過現在假設一次只有一個 ID 在 active  
+因此現在的結構是  
+```scss
+AR(issue_idx++)
+→ rd_outstanding++
+→ R channel
+   └─ r_burst_idx++
+   └─ r_active (只允許一個 burst)
+   └─ r_beat_cnt
+```
+未來 Out-of-order 的結構
+```scss
+AR(issue_idx++)
+→ rd_outstanding++
+→ R channel
+   └─ per-ID state
+        ├─ active[ID]
+        ├─ beat_cnt[ID]
+        └─ done[ID]
+```
+- `r_burst_idx` 會被刪掉，因為 `ID` 本身就是 index
+- `r_active` ⭢ `r_active[ID]`
+- `r_beat_cnt` ⭢ `r_beat_cnt[ID]`
+
+保持不動的 reg
+- `ar_issue_idx`：發 request 的順序
+- `rd_outstanding`：流量控制
+
+#### 開始改 code
+```verilog
+localparam ID_W = 4;
+localparam ID_NUM = 1 << ID_W;
+```
+`ID_W`
+- ID Width 代表 ID 訊號的位元寬度
+- 現在是 4 bits
+
+`ID_NUM`
+- ID 的總數量
+- Master 需要多少個空格紀錄每個 ID 的進度
+
+```verilog
+reg r_active [0 : ID_NUM - 1];
+reg [7:0] r_beat_cnt [0 : ID_NUM - 1];
+```
+把 `active` 和 `beat_cnt` 變成各個 ID 分別紀錄
+
+
+```verilog
+wire [ID_W - 1 : 0] rid = M_AXI_RID;
+```
+上面兩個 array 的 index
+
+```verilog
+integer i;
+...
+    for (i = 0; i < ID_NUM; i = i + 1) begin
+        r_active[i] <= 0;
+        r_beat_cnt[i] <= 0;
+    end
+...
+```
+初始化矩陣
+
+
+```verilog
+// start R
+    if (rd_outstanding > 0) begin
+        M_AXI_RREADY <= 1;
+    end
+    else begin
+        M_AXI_RREADY <= 0;
+    end
+```
+直接由 `rd_outstanding` 判斷，而不用之前的 reg `r_active`
+
+```verilog
+// receive data
+    if (M_AXI_RVALID && M_AXI_RREADY) begin
+        // check or store M_AXI_RDATA
+        $display("Read ID %0d beat %0d = %h", 
+                rid, r_beat_cnt[rid], M_AXI_RDATA);
+```
+輸出改成用 `rid` 呈現
+
+
+```verilog
+        if (!r_active[rid]) begin
+            r_active[rid] <= 1;
+            r_beat_cnt[rid] <= 1;
+        end 
+```
+收到某個 ID 的第 1 個 beat  
+
+```verilog
+        else begin
+            r_beat_cnt[rid] <= r_beat_cnt[rid] + 1;
+        end
+```
+beat 遞增
+
+
+```verilog
+        if (M_AXI_RLAST) begin
+            r_active[rid] <= 0;
+            r_beat_cnt[rid] <= 0;
+        end
+    end
+```
+結束這個 ID 的 burst  
+
+```VERILOG
+    if ((ar_issue_idx == TOTAL_BURSTS) && 
+        (rd_outstanding == 0) && 
+        !M_AXI_ARVALID) begin
+        state <= DONE;
+    end 
+```
+刪掉不用的 `r_active`
+
+> 完整 code 位於 `AXI4_ID_src/master_v7.v`
+
+#### VIP 驗證
+1. 新建 project
+2. 加入 `master_v7.v` `tb_v1.sv`
+3. 從 IP Catalog 加入 AXI VIP (設定和之前相同)
+4. run sim, run all
+5. 看看波型，`RID` `r_active[rid]` `burst_idx[rid]`
+    ![v7](AXI4_ID_pic/v7.png)
+    
