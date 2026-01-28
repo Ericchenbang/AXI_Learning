@@ -170,7 +170,7 @@ always @(posedge ACLK) begin
                 if (!w_active && aw_pending > 0) begin
                     M_AXI_WDATA <= 32'h1000_0000 + (w_burst_idx * 16);
                     M_AXI_WSTRB <= 4'b1111;
-                    M_AXI_WVALID<= 1;
+                    M_AXI_WVALID <= 1;
                     M_AXI_WLAST <= 0;
 
                     w_active <= 1;
@@ -235,7 +235,10 @@ always @(posedge ACLK) begin
                             r_burst_idx, r_beat_cnt, M_AXI_RDATA);
 
                     if (M_AXI_RLAST) begin
-                        M_AXI_RREADY <= 0;
+                        // If rd_outstanding > 0, then keep RREADY high
+                        if (rd_outstanding == 0) begin
+                            M_AXI_RREADY <= 0;
+                        end
 
                         r_active <= 0;
                         r_burst_idx <= r_burst_idx + 1;
@@ -268,7 +271,7 @@ always @(posedge ACLK) begin
                M_AXI_BVALID  && M_AXI_BREADY})
             2'b10: wr_outstanding <= wr_outstanding + 1;
             2'b01: wr_outstanding <= wr_outstanding - 1;
-            2'b11: wr_outstanding <= wr_outstanding; // same cycle issue + complete
+            2'b11: wr_outstanding <= wr_outstanding;        // same cycle issue + complete
             default: wr_outstanding <= wr_outstanding;
         endcase
     end
@@ -288,7 +291,4 @@ always @(posedge ACLK) begin
         endcase
     end
 end
-
-
-
 endmodule

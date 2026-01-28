@@ -67,7 +67,7 @@ reg [7:0] w_beat_cnt;           // beat count of current burst
 // outstanding
 localparam TOTAL_BURSTS = 8;            // 總共有幾次 burst
 localparam MAX_WR_OUTSTANDING = 2;      // 最多幾個 outstanding
-reg [2:0] wr_outstanding;               // 還沒 response 的 outstanding 數量
+reg [2:0] wr_outstanding;               // 還沒 response 的 outstanding 數量 (和 W 沒關係)
 reg [7:0] bursts_left;                  // 剩下幾個 burst 要傳
 reg sending_w;                          // 現在是否在傳送 w data
 ```
@@ -239,9 +239,9 @@ reg [7:0] aw_issue_idx;
 ```verilog!
 reg [7:0] w_burst_idx;
 ```
-紀錄已經送 `AW`，但 `W` 還沒送的 burst 數量
+紀錄已經送 `AW`，但 `W` 還沒送的 burst 數量 (和 `wr_outstanding` 沒關係)
 ```verilog!
-reg [2:0] aw_pending;
+reg [2:0] aw_pending;   
 ```
 更新規則
 - `AW` handshake：`aw_pending++`
@@ -353,6 +353,7 @@ B response:     wr_outstanding control
     - 模擬時間可能會不夠 (1000 ns)，可以直接按上方橫列出現的 run all 符號，或者按 run for，設定個 500 ns
 4. 看看波型，`AW` 有沒有真的和 `W` 分離
     ![V2](AXI4_Outstanding_pic/write_outstanding_v2.png)
+---
 
 ### 再做 read outstanding
 其實比 write outstanding 好做許多
@@ -371,24 +372,24 @@ B response:     wr_outstanding control
 #### 新增 register
 ```verilog
 // read control
-reg [7:0] ar_issue_idx;
-reg [7:0] r_burst_idx;
-reg       r_active;
+reg [7:0] ar_issue_idx;     // AR channel issue number
+reg [7:0] r_burst_idx;      // R channel current burst number
+reg       r_active;         // Doning R channel now
 
 // read outstanding
-reg [2:0] rd_outstanding;
+reg [2:0] rd_outstanding;   // There have left issues hasn't been response yet
 ```
 - Reset 時全清為 0  
-- 不用 `ar_pending`，因為可以用 `rd_outstanding` 判斷
+- 不用 `ar_pending`，因為可以用 `rd_outstanding` 判斷，並且用 `ar_pending` 會有時序問題
 
 ```verilog
-wire ar_can_issue_ar;
+wire ar_can_issue_ar;       // Ar channel can issue
 assign ar_can_issue_ar =
-    (ar_issue_idx < TOTAL_BURSTS) &&
+    (ar_issue_idx < TOTAL_BURSTS) &&            
     (rd_outstanding < MAX_RD_OUTSTANDING) &&
     !M_AXI_ARVALID;
 ```
-#### AR fully outstanding
+#### AR fully outstanding (same as AW)
 ```verilog
 // start AR
     if (ar_can_issue) begin
@@ -471,3 +472,78 @@ end
     - 模擬時間肯定不夠 (1000 ns)，可以直接按上方橫列出現的 run all 符號
 4. 看看波型，有沒有正確讀出先前寫入的值
     ![read_outstanding](AXI4_Outstanding_pic/read_outstanding.png)
+
+### 進入 ID 前的小複習
+#### `aw_issue_idx`
+- 代表：`AW` 已經送出的 burst 數量
+- `0 ≤ aw_issue_idx ≤ TOTAL_BURSTS`
+- 每個 index 對應一個 burst
+- `address = base + idx * burst_bytes`
+
+#### `wr_outstanding`
+- 代表：已經 handshake，卻還沒收到 `B` response 的 burst 數量
+- `0 ≤ wr_outstanding ≤ MAX_WR_OUTSTANDING`
+
+#### `aw_pending`
+- 代表：`AW` 已經 handshake，`W` 卻還沒送出的 burst 數量
+- `0 ≤ aw_pending ≤ MIN(TOTAL_BURSTS, MAX_WR_OUTSTANDING)`
+- 實際情況 `TOTAL_BURSTS` 是無限大，所以通常還是取決於硬體上限 `MAX_WR_OUTSTANDING`
+
+- 想像一個賣東東的地方，商品從 `AW` (把商品拿給估價員) 進入，經過 `W` (估價員估價商品)，最後從 `B` (估價員將錢給我) 出來。  
+    1. `AW` 發送時： 兩個計數器同時 +1。
+        - `aw_pending` = 1
+        - `wr_outstanding` = 1
+    2. `W` 數據送完時： 只有 `aw_pending` -1。
+        - `aw_pending` = 0 (估價完成)
+        - `wr_outstanding` = 1 (還在等錢錢)
+    3. `B` 回應收到時： `wr_outstanding` -1。
+        - `aw_pending` = 0
+        - `wr_outstanding` = 0 (完全結案)  
+
+
+    所以 `aw_pending` 是一個 **跑得比 outstanding 還要快歸零** 的計數器。
+    
+    
+#### w_active
+- 代表：`W` 正在傳送某個 burst 的 data beats
+- 目前 `w_active == 1` 代表 `WVALID == 1`
+- 真實世界 `w_active` 和 `WVALID` 不會每個時刻都相同
+    #### 情境：FIFO 快空了。  
+    要送一個 Length = 16 的 Burst，但是 FIFO 裡面目前只有 3 筆資料，而且寫入端很慢。
+    1. Burst 開始： `w_active` = 1 (進入狀態機，鎖定任務)。
+    2. Beat 0 ~ 2： FIFO 有資料，`WVALID` = 1。送出 3 筆。
+    3. Beat 3： FIFO 空了！
+        - 這時候 Burst 還沒結束 (還沒送 `WLAST`)，所以 `w_active` 必須保持為 1 (狀態機不能跳開，必須卡在這邊等)。
+        - 但是因為沒有資料可以送，所以必須把 `WVALID` 拉低為 0。
+
+    結論：
+    - `w_active` (Internal State)：代表 **現在身處於一個交易流程中**
+    - `WVALID` (Protocol Signal)：代表 **現在這一瞬間手上有資料**
+
+
+#### w_beat_cnt
+- 代表：當前這個 burst 傳送到第幾個 beats
+- `0 ≤ w_beat_cnt < BURST_LEN`
+
+#### w_burst_idx
+- 代表：`W` 正在送第幾個 burst 
+
+#### ar_issue_idx
+- 代表：`AR` 送出的 read burst 數量
+- `0 ≤ ar_issue_idx ≤ TOTAL_BURSTS`
+
+#### rd_outstanding
+- 代表：`AR` handshake 過，卻還沒收到 `R` 回應 (`RLAST`) 的 burst 數量
+- `0 ≤ rd_outstanding ≤ MAX_WR_OUTSTANDING`
+
+#### r_active
+- 代表：目前正在接受某一個 burst 的 `RDATA`
+
+#### r_beat_cnt
+- 代表：當前 burst 收到第幾個 beat 的 data
+- `0 ≤ r_beat_cnt < BURST_LEN`
+
+#### r_burst_idx
+- 代表：現在收到第幾個 burst
+- **in-order**
+    - 現在 `w_burst_idx` / `r_burst_idx` 順序都是依照 `AW` / `AR` 發送順序，下一步 id 就會把這個限制給打破 
